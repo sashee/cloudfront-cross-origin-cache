@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  CloudFrontFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          request.uri = request.uri.replace(/^\/[^/]*\//, "/");
+          return request;
+        }
+      FunctionConfig: 
+        Runtime: cloudfront-js-2.0
+        Comment: rewrite-uri
+      Name: rewrite-uri
+      AutoPublish: true
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+        DefaultCacheBehavior:
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+          TargetOriginId: lambda1
+          ViewerProtocolPolicy: "redirect-to-https"
+        CacheBehaviors:
+        - CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          PathPattern: "app1/*"
+          TargetOriginId: lambda1
+          ViewerProtocolPolicy: redirect-to-https
+          FunctionAssociations:
+          - EventType: viewer-request
+            FunctionARN: !GetAtt CloudFrontFunction.FunctionARN
+        - CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          PathPattern: "app2/*"
+          TargetOriginId: lambda2
+          ViewerProtocolPolicy: redirect-to-https
+          FunctionAssociations:
+          - EventType: viewer-request
+            FunctionARN: !GetAtt CloudFrontFunction.FunctionARN
+        Origins:
+        - DomainName: !Select [2, !Split ["/", !GetAtt Lambda1Url.FunctionUrl]]
+          Id: lambda1
+          CustomOriginConfig:
+            OriginProtocolPolicy: https-only
+            OriginSSLProtocols: [TLSv1.2]
+        - DomainName: !Select [2, !Split ["/", !GetAtt Lambda2Url.FunctionUrl]]
+          Id: lambda2
+          CustomOriginConfig:
+            OriginProtocolPolicy: https-only
+            OriginSSLProtocols: [TLSv1.2]
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  Lambda1LogGroup:
+    Type: AWS::Logs::LogGroup
+  Lambda2LogGroup:
+    Type: AWS::Logs::LogGroup
+  Lambda1:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return "Welcome to webapp 1!\n\nThis is:" + event.requestContext.http.path;
+          }
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: nodejs20.x
+      LoggingConfig:
+        LogGroup: !Ref Lambda1LogGroup
+  Lambda2:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            return "Welcome to webapp 2!\n\nThis is:" + event.requestContext.http.path;
+          }
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: nodejs20.x
+      LoggingConfig:
+        LogGroup: !Ref Lambda2LogGroup
+  Lambda1Url:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt Lambda1.Arn
+  Lambda1Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Lambda1
+      FunctionUrlAuthType: 'NONE'
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+  Lambda2Url:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt Lambda2.Arn
+  Lambda2Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Lambda2
+      FunctionUrlAuthType: 'NONE'
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+Outputs:
+  URL:
+    Value: !GetAtt Distribution.DomainName
+  Lambda1:
+    Value: !Sub
+    - 'https://${DomainName}/app1/index.html'
+    - DomainName: !GetAtt Distribution.DomainName
+  Lambda2:
+    Value: !Sub
+    - 'https://${DomainName}/app2/index.html'
+    - DomainName: !GetAtt Distribution.DomainName
