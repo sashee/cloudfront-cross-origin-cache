@@ -1,4 +1,4 @@
-# This is demonstration code to show how caches can be stale between cache behaviors
+# This is demonstration code to show how caches are incorrectly shared between cache behaviors
 
 ## Overview
 
